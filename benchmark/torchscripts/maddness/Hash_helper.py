@@ -1,15 +1,14 @@
 # type: ignore
 import copy
-import numba
-import numpy as np
+import torch
 
-@numba.njit(fastmath=True, cache=True, parallel=False)
+# @numba.njit(fastmath=True, cache=True, parallel=False)
 def _cumsse_cols(X):
     # TODO: can be optimized with numpy
     N, D = X.shape
-    cumsses = np.empty((N, D), X.dtype)
-    cumX_column = np.empty(D, X.dtype)
-    cumX2_column = np.empty(D, X.dtype)
+    cumsses = torch.empty((N, D), dtype = X.dtype)
+    cumX_column = torch.empty(D, dtype = X.dtype)
+    cumX2_column = torch.empty(D, dtype = X.dtype)
     for j in range(D):
         cumX_column[j] = X[0, j]
         cumX2_column[j] = X[0, j] * X[0, j]
@@ -36,17 +35,17 @@ def optimal_split_val(
         assert X_orig.shape == X.shape
 
     N, _ = X.shape
-    sort_idxs = np.argsort(X_orig[:, dim])
+    sort_idxs = torch.argsort(X_orig[:, dim])
     X_sort = X[sort_idxs]
 
     # cumulative SSE (sum of squared errors)
     sses_head = _cumsse_cols(X_sort)
-    sses_tail = _cumsse_cols(X_sort[::-1])[::-1]
+    sses_tail = torch.flip(_cumsse_cols(torch.flip(X_sort, [0])), [0])
     sses = sses_head
     sses[:-1] += sses_tail[1:]
     sses = sses.sum(axis=1)
 
-    best_idx = np.argmin(sses)
+    best_idx = torch.argmin(sses)
     next_idx = min(N - 1, best_idx + 1)
     col = X[:, dim]
     best_val = (col[sort_idxs[best_idx]] + col[sort_idxs[next_idx]]) / 2
@@ -54,12 +53,12 @@ def optimal_split_val(
     return best_val, sses[best_idx]
 
 
-@numba.njit(fastmath=True, cache=True, parallel=False)
+# @numba.njit(fastmath=True, cache=True, parallel=False)
 def calculate_loss(
-    X: np.ndarray, split_n: int, dim: int, idxs: np.ndarray
+    X: torch.Tensor, split_n: int, dim: int, idxs: torch.Tensor
 ) -> tuple[float, float]:
-    X = X[idxs].copy()
-    sorted_ids = np.argsort(X[:, dim])
+    X = X[idxs].detach().clone()
+    sorted_ids = torch.argsort(X[:, dim])
     X = X[sorted_ids]
     X0 = X[:split_n]
     X1 = X[split_n:]
@@ -69,11 +68,11 @@ def calculate_loss(
     X0_div = X0.shape[0] if X0.shape[0] > 0 else 1
     X1_div = X1.shape[0] if X1.shape[0] > 0 else 1
     # print(X0, X1, X0.shape, X1.shape)
-    X0_error = 1 / X0_div * np.sum(X0, axis=0)
-    X1_error = 1 / X1_div * np.sum(X1, axis=0)
+    X0_error = 1 / X0_div * torch.sum(X0, axis=0)
+    X1_error = 1 / X1_div * torch.sum(X1, axis=0)
 
-    bucket_0_error = np.sum(np.square(X0 - X1_error))
-    bucket_1_error = np.sum(np.square(X1 - X0_error))
+    bucket_0_error = torch.sum(torch.square(X0 - X1_error))
+    bucket_1_error = torch.sum(torch.square(X1 - X0_error))
 
     # print(
     #     X.shape,
@@ -88,16 +87,16 @@ def calculate_loss(
 
 
 # this is not working
-@numba.njit(cache=True, parallel=False)
+# @numba.njit(cache=True, parallel=False)
 def optimal_split_val_new(
-    X: np.ndarray, dim: int, idxs: np.ndarray
+    X: torch.tensor, dim: int, idxs: torch.tensor
 ) -> tuple[float, float]:
-    losses = np.zeros(X.shape[0])
-    split_vals = np.zeros(X.shape[0])
+    losses = torch.zeros(X.shape[0])
+    split_vals = torch.zeros(X.shape[0])
     # pylint: disable=not-an-iterable
     for i in numba.prange(X.shape[0]):
         split_vals[i], losses[i] = calculate_loss(X, i, dim, idxs)
-    arg_min = np.argmin(losses)
+    arg_min = torch.argmin(losses)
     print("returned loss", split_vals[arg_min], losses[arg_min])
     return split_vals[arg_min], losses[arg_min]
 
@@ -124,7 +123,7 @@ class Bucket:
         if point_ids is None:
             assert N == 0
             point_ids = (
-                set() if support_add_and_remove else np.array([], dtype=np.int64)
+                set() if support_add_and_remove else torch.tensor([], dtype=torch.int64)
             )
 
         self.N = len(point_ids)
@@ -138,7 +137,7 @@ class Bucket:
         if support_add_and_remove:
             self.point_ids = set(point_ids)
         else:
-            self.point_ids = np.asarray(point_ids)
+            self.point_ids = torch.as_tensor(point_ids)
 
         # figure out D
         if (D is None or D < 1) and (sumX is not None):
@@ -149,14 +148,14 @@ class Bucket:
         self.D = D
 
         # figure out + sanity check stats arrays
-        self.sumX = np.zeros(D, dtype=np.float32) if (sumX is None) else sumX
-        self.sumX2 = np.zeros(D, dtype=np.float32) if (sumX2 is None) else sumX2  # noqa
+        self.sumX = torch.zeros(D, dtype=torch.float32) if (sumX is None) else sumX
+        self.sumX2 = torch.zeros(D, dtype=torch.float32) if (sumX2 is None) else sumX2  # noqa
         # print("D: ", D)
         # print("sumX type: ", type(sumX))
         assert len(self.sumX) == D
         assert len(self.sumX2) == D
-        self.sumX = np.asarray(self.sumX).astype(np.float32)
-        self.sumX2 = np.asarray(self.sumX2).astype(np.float32)
+        self.sumX = torch.as_tensor(self.sumX).to(torch.float32)
+        self.sumX2 = torch.as_tensor(self.sumX2).to(torch.float32)
 
     def add_point(self, point, point_id=None):
         assert self.support_add_and_remove
@@ -178,8 +177,8 @@ class Bucket:
     def deepcopy(self, bucket_id=None):  # deep copy
         bucket_id = self.id if bucket_id is None else bucket_id
         return Bucket(
-            sumX=np.copy(self.sumX),
-            sumX2=np.copy(self.sumX2),
+            sumX=self.sumX.detach().clone(),
+            sumX2=self.sumX2.detach().clone(),
             point_ids=copy.deepcopy(self.point_ids),
             bucket_id=bucket_id,
         )
@@ -190,7 +189,7 @@ class Bucket:
         if X is None or self.N < 2:  # copy of this bucket + an empty bucket
             return (self.deepcopy(bucket_id=id0), Bucket(D=self.D, bucket_id=id1))
         assert self.point_ids is not None
-        my_idxs = np.asarray(self.point_ids)
+        my_idxs = torch.as_tensor(self.point_ids)
 
         X = X_orig[my_idxs]
         X_orig = X if X_orig is None else X_orig[my_idxs]
@@ -213,22 +212,22 @@ class Bucket:
     def optimal_split_val(self, X, dim, X_orig=None):
         if self.N < 2 or self.point_ids is None:
             return 0, 0
-        my_idxs = np.asarray(self.point_ids)
+        my_idxs = torch.as_tensor(self.point_ids)
         if X_orig is not None:
             X_orig = X_orig[my_idxs]
         return optimal_split_val(X[my_idxs], dim, X_orig=X_orig)
         # return optimal_split_val_new(X, dim, my_idxs)
 
     def col_means(self):
-        return self.sumX.astype(np.float64) / max(1, self.N)
+        return self.sumX.to(torch.float64) / max(1, self.N)
 
     def col_variances(self, safe=False):
         if self.N < 1:
-            return np.zeros(self.D, dtype=np.float32)
+            return torch.zeros(self.D, dtype=torch.float32)
         E_X2 = self.sumX2 / self.N
         E_X = self.sumX / self.N
         ret = E_X2 - (E_X * E_X)
-        return np.maximum(0, ret) if safe else ret
+        return torch.maximum(0, ret) if safe else ret
 
     def col_sum_sqs(self):
         return self.col_variances() * self.N
@@ -236,7 +235,7 @@ class Bucket:
     @property
     def loss(self):
         # more stable version, that also clamps variance at 0
-        return max(0, np.sum(self.col_sum_sqs()))
+        return max(0, torch.sum(self.col_sum_sqs()))
 
 
 def create_codebook_start_end_idxs(X, number_of_codebooks, algo="start"):
@@ -254,7 +253,7 @@ def create_codebook_start_end_idxs(X, number_of_codebooks, algo="start"):
     number_of_codebooks = int(number_of_codebooks)
     assert D >= number_of_codebooks
 
-    idxs = np.empty((number_of_codebooks, 2), dtype=np.int64)
+    idxs = torch.empty((number_of_codebooks, 2), dtype=torch.int64)
     full_subvec_len = D // number_of_codebooks
     start_idx = 0
     for c in range(number_of_codebooks):
@@ -281,7 +280,7 @@ class MultiSplit:
 
     def __init__(self, dim, vals, scaleby=None, offset=None):
         self.dim = dim
-        self.vals = np.asarray(vals)
+        self.vals = torch.as_tensor(vals)
         self.scaleby = scaleby
         self.offset = offset
 
@@ -298,7 +297,7 @@ class MultiSplit:
         )
         return params
 
-    def preprocess_x(self, x: np.ndarray) -> np.ndarray:
+    def preprocess_x(self, x: torch.tensor) -> torch.tensor:
         if self.offset is not None:
             x = x - self.offset
         if self.scaleby is not None:

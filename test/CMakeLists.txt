@@ -23,4 +23,5 @@ add_catch_test(sketch_test SystemTest/SketchTest.cpp IntelliStream)
 add_catch_test(crs_test SystemTest/CRSTest.cpp IntelliStream)
 add_catch_test(weighted_cr_test SystemTest/WeightedCRTest.cpp IntelliStream)
 add_catch_test(block_partition_test SystemTest/BlockPartitionTest.cpp IntelliStream)
+add_catch_test(maddness SystemTest/Maddness.cpp IntelliStream)
 
