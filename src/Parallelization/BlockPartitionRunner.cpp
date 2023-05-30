@@ -8,19 +8,31 @@ void AMMBench::BlockPartitionWorker::setConfig(INTELLI::ConfigMapPtr _cfg) {
   cfg = _cfg;
   sketchDimension = cfg->tryU64("sketchDimension", 50, true);
   std::string ptFile = cfg->tryString("ptFile", "torchscripts/FDAMM.pt", true);
-  module = torch::jit::load(ptFile);
+  useCPP = cfg->tryU64("useCPP", 0, true);
+  if (useCPP) {
+    std::string cppAlgoTag = cfg->tryString("cppAlgoTag", "mm", true);
+    cppAlgoPtr = cppAlgoTable.findCppAlgo(cppAlgoTag);
+  }
+  if (!useCPP || (cppAlgoPtr == nullptr)) {
+    module = torch::jit::load(ptFile);
+    if (useCPP) {
+      INTELLI_ERROR("No cpp algorithm found, go back to pt module");
+      useCPP = 0;
+    }
+  }
+
 }
 void AMMBench::BlockPartitionWorker::setWorkParameters(uint64_t aStart, uint64_t aEnd, int mycore) {
   startRow = aStart;
   endRow = aEnd;
   coreBind = mycore;
   //matC=newTensor(torch::zeros({(long)(endRow+1-startRow),matB->size(1)}));
-  subA = matA->slice(0, startRow, endRow);
+
 
 }
 void AMMBench::BlockPartitionWorker::setABC(AMMBench::TensorPtr A, AMMBench::TensorPtr B, AMMBench::TensorPtr C) {
-  matA = newTensor(*A);
-  matB = newTensor(*B);;
+  matA = A;
+  matB = B;
   matC = C;
   //assert(C);
 }
@@ -40,9 +52,15 @@ void AMMBench::BlockPartitionWorker::inlineMain() {
   //torch::Tensor subC =  module.forward({subA, *matB, (long) sketchDimension}).toTensor();
   // Copy the results back to the output matrix C
   //matC->slice(0, startRow, endRow) = subC;
-
+  subA = matA->slice(0, startRow, endRow);
   //irC=module.forward({subA, *matB, (long) sketchDimension}).toTensor();
-  matC->slice(0, startRow, endRow) =module.forward({subA, *matB, (long) sketchDimension}).toTensor();
+  if (useCPP) {
+    INTELLI_WARNING("USE CPP ALGO");
+    matC->slice(0, startRow, endRow) = cppAlgoPtr->amm(subA, *matB, sketchDimension);
+  } else {
+    matC->slice(0, startRow, endRow) =module.forward({subA, *matB, (long) sketchDimension}).toTensor();
+  }
+
   gettimeofday(&tend, NULL);
   //std::cout<<subC;
 }
@@ -91,11 +109,9 @@ torch::Tensor AMMBench::BlockPartitionRunner::runAMM(torch::Tensor A, torch::Ten
   return parallelForward();
 }
 uint64_t AMMBench::BlockPartitionRunner::getElapsedTime() {
-  //uint64_t maxTime=workers[0]->getElapsedTime();
   uint64_t ti = 0;
   for (uint64_t i = 0; i < threads; i++) {
     ti += workers[i]->getElapsedTime();
-
   }
   return ti / threads;
 }

@@ -1,2 +1,3 @@
-1. experimental support of parallelization
-2. example scripts at benchmark/scripts/scanThreads
+1. add pure c++ algorithms
+2. add normalized error and error bound evaluation at benchmark
+3. update scripts

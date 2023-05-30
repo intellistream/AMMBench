@@ -28,6 +28,9 @@
     * - coreBind (U64) the specific core tor run this benchmark, default 0
     * - ptFile (String) the path for the *.pt to be loaded, default torchscripts/FDAMM.pt
     * - matrixLoaderTag (String) the nameTag of matrix loader, see @ref MatrixLoaderTable, default is random
+    * - useCPP (U64) force the benchmark to use static and pure cpp implementation instead of pt, default 0
+    * - cppAlgoTag (String) The algorithm tag to index a cpp algorithm, works only under useCPP=1, default "mm",
+    * see also @ref CPPAlgoTable
    * @note Additional tags for energy measurement (please validate usingMeter first) see also @ref INTELLI_UTIL_METER
    * - usingMeter (U64) set to 1 if you want to use some energy meter, default diabled
    * - meterTag (String) the tag of meter, see also @ref MeterTable, default is intelMsr
@@ -35,11 +38,17 @@
    * - meterAddress (String) set this to the file system path of the meter, if it is different from the meter's default
    * @warning For some platforms, the staticPower automatically measured by sleep is not accurate. Please do this mannulally.
   See also the template config.csv
- * @section subsec_extend_operator How to extend a new algorithm
+ * @section subsec_extend_operator How to extend a new algorithm (pt-based)
  * - go to the benchmark/torchscripts
  * - find any .python as an example
  * - copy and modify it and generate the *pt, please make it under hump style of naming
  * - the system will then support it by using the name of your pt.
+ * @section subsec_extend_cpp_operator How to extend a new algorithm (pure static c++ based)
+ * - go to the src/CPPAlgos and include/CPPAlgos
+ * - copy the example class, such as CRSCPPAlgo, rename it, and implement your own @ref amm function
+ * - register tour function with a tag to src/CPPAlgos/CPPAlgoTable.cpp
+ * - edit the CMakelist.txt at src/CPPAlgos to include your new algo and recompile
+ * - remember to add a test bench, you can refer to CRSTest.cpp at test/SystemTest for example
  * @section subsec_edit_test How to add a single point test
  * - copy your config file to test/scripts, and your pt file to test/torchscripts
  * - follow and copy the SketchTest.cpp to create your own, say A.cpp
@@ -78,6 +87,22 @@
 #include <Parallelization/BlockPartitionRunner.h>
 /**
  * @}
+ *
+ */
+/**
+* @subsection code_stru_cppalgo c++ algorithms
+* This folder contains the agorithms implemented under pure c++
+* @defgroup  AMMBENCH_CppAlgos The c++ amm algorithms
+* @{
+* We define the c++ algorithm classes of AMM. here
+**/
+#include <CPPAlgos/AbstractCPPAlgo.h>
+#include <CPPAlgos/CPPAlgoTable.h>
+#include <CPPAlgos/CRSCPPAlgo.h>
+#include <CPPAlgos/CRSV2CPPAlgo.h>
+/**
+ * @}
+ *
  */
 /***
  *  @subsection code_stru_utils Utils

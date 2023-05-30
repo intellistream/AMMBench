@@ -8,6 +8,7 @@
 #include <experimental/filesystem>
 #include <barrier>
 #include <functional>
+#include <torch/torch.h>
 //#include <Common/Types.h>
 
 #include <vector>
@@ -66,6 +67,21 @@ class UtilityFunctions {
        return  period;
      }*/
     return ru;
+  }
+  static double relativeFrobeniusNorm(torch::Tensor A, torch::Tensor B) {
+    torch::Tensor error = A - B;
+    double frobeniusNormA = A.norm().item<double>();
+    double frobeniusNormError = error.norm().item<double>();
+
+    return frobeniusNormError / frobeniusNormA;
+  }
+  static double errorBoundRatio(torch::Tensor A, torch::Tensor B) {
+    torch::Tensor error = A - B;
+    double frobeniusNormA = A.norm().item<double>();
+    double frobeniusNormB = B.norm().item<double>();
+    double frobeniusNormError = error.norm().item<double>();
+
+    return frobeniusNormError / frobeniusNormA / frobeniusNormB;
   }
 };
 }

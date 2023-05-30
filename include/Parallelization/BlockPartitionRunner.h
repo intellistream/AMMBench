@@ -11,6 +11,7 @@
 #include <torch/script.h>
 #include <memory>
 #include <vector>
+#include <CPPAlgos/CPPAlgoTable.h>
 namespace AMMBench {
 
 #define  newTensor make_shared<torch::Tensor>
@@ -28,7 +29,10 @@ typedef std::shared_ptr<torch::Tensor> TensorPtr;
 class BlockPartitionWorker : public INTELLI::AbstractC20Thread {
  protected:
   virtual void inlineMain();
+  AMMBench::CPPAlgoTable cppAlgoTable;
   struct timeval tstart, tend;
+  uint64_t useCPP = 0;
+  AMMBench::AbstractCPPAlgoPtr cppAlgoPtr = nullptr;
   /**
    * @brief Input matrix A
    */

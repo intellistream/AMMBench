@@ -21,6 +21,7 @@ void runSingleThreadTest(std::string configName) {
   uint64_t coreBind = cfg->tryU64("coreBind", 0, true);
   uint64_t usingMeter = cfg->tryU64("usingMeter", 0, true);
   std::string meterTag = cfg->tryString("meterTag", "intelMsr", true);
+  uint64_t useCPP = cfg->tryU64("useCPP", 0, true);
   if (usingMeter) {
     eMeter = meterTable.findMeter(meterTag);
     if (eMeter != nullptr) {
@@ -55,6 +56,7 @@ void runSingleThreadTest(std::string configName) {
   matLoaderPtr->setConfig(cfg);
   auto A = matLoaderPtr->getA();
   auto B = matLoaderPtr->getB();
+  torch::Tensor C;
   //555
   /*torch::manual_seed(114514);
 //555
@@ -73,18 +75,26 @@ auto B = torch::rand({(long) aCol, (long) bCol});*/
       eMeter->startMeter();
     }
     pef.start();
-    auto c = br.parallelForward();
+    C = br.parallelForward();
     pef.end();
     if (eMeter != nullptr) {
       eMeter->stopMeter();
     }
   } else {
+    AMMBench::CPPAlgoTable cppAlgoTable;
+    std::string cppAlgoTag = cfg->tryString("cppAlgoTag", "mm", true);
+    AMMBench::AbstractCPPAlgoPtr cppAlgoPtr = cppAlgoTable.findCppAlgo(cppAlgoTag);
     INTELLI_WARNING("single thread");
     if (eMeter != nullptr) {
       eMeter->startMeter();
     }
     pef.start();
-    auto C =module.forward({A, B, (long) sketchDimension}).toTensor();
+    if (useCPP && cppAlgoPtr) {
+      INTELLI_WARNING("this is pure c++");
+      C = cppAlgoPtr->amm(A, B, sketchDimension);
+    } else {
+      C =module.forward({A, B, (long) sketchDimension}).toTensor();
+    }
     pef.end();
     if (eMeter != nullptr) {
       eMeter->stopMeter();
@@ -107,6 +117,15 @@ auto B = torch::rand({(long) aCol, (long) bCol});*/
     INTELLI_WARNING("consider multithread elapsed time");
     resultCsv->edit("perfElapsedTime", (uint64_t) br.getElapsedTime());
   }
+  // error
+  INTELLI_WARNING("evaluating the error, may takes some time");
+  torch::Tensor realC = torch::matmul(A, B);
+  double froError = INTELLI::UtilityFunctions::relativeFrobeniusNorm(realC, C);
+  double froBNormal = B.norm().item<double>();
+  double errorBoundRatio = froError / froBNormal;
+  INTELLI_INFO("B normal is " + to_string(froBNormal));
+  resultCsv->edit("froError", (double) froError);
+  resultCsv->edit("errorBoundRatio", (double) errorBoundRatio);
   resultCsv->toFile(ruName + ".csv");
   INTELLI_INFO("Done. here is result");
   std::cout << resultCsv->toString() << endl;
