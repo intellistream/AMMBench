@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import sys, os
+sys.path.append(os.path.abspath(os.path.join('..', 'common')))
+
 import csv
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,7 +10,6 @@ import groupBar2 as groupBar2
 import groupLine as groupLine
 from autoParase import *
 import itertools as it
-import os
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -17,10 +19,9 @@ from matplotlib.font_manager import FontProperties
 from matplotlib import ticker
 from matplotlib.ticker import LogLocator, LinearLocator
 
-import os
 import pandas as pd
-import sys
 from OoOCommon import *
+from algorithms import *
 
 OPT_FONT_NAME = 'Helvetica'
 TICK_FONT_SIZE = 22
@@ -50,32 +51,33 @@ matplotlib.rcParams['font.family'] = OPT_FONT_NAME
 matplotlib.rcParams['pdf.fonttype'] = 42
 
 
-def runPeriod(exePath, srcA,srcB, algoTag, resultPath, configTemplate="config.csv",prefixTag="null"):
+def runPeriod(exePath, srcA,srcB, algo, resultPath, configTemplate="config.csv",prefixTag="null"):
     # resultFolder="periodTests"
     configFname = "config_period_"+prefixTag + ".csv"
     # configTemplate = "config.csv"
     # clear old files
     os.system("cd " + exePath + "&& sudo rm *.csv")
     os.system("cp perfListEvaluation.csv " + exePath)
+
+    df = algo.config.copy()
+    df.loc["srcA"]  = [srcA, 'String']
+    df.loc["srcB"]  = [srcB, 'String']
     # editConfig(configTemplate, exePath + configFname, "earlierEmitMs", 0)
-    editConfig(configTemplate, exePath+"temp1.csv", "srcA", srcA)
-    editConfig(exePath+"temp1.csv", exePath+"temp2.csv", "srcB", srcB)
-    editConfig(exePath+"temp2.csv",exePath+configFname, "cppAlgoTag", algoTag)
+    editConfig(configTemplate, exePath + configFname, df)
     # prepare new file
     # run
-    os.system("export OMP_NUM_THREADS=1 &&" + "cd " + exePath + "&& sudo ./benchmark " + configFname)
+    os.system("cd " + exePath + "&& sudo env OMP_NUM_THREADS=1 ./benchmark " + configFname)
     # copy result
-    os.system("sudo rm -rf " + resultPath + "/" + str(prefixTag))
-    os.system("sudo mkdir " + resultPath + "/" + str(prefixTag))
+    cleanPath(resultPath + "/" + str(singleValue))
     os.system("cd " + exePath + "&& sudo cp *.csv " + resultPath + "/" + str(prefixTag))
 
 
-def runPeriodVector (exePath,periodVec,pS,algoTag,resultPath,prefixTag, configTemplate="config.csv"):
+def runPeriodVector (exePath,periodVec,pS,algo,resultPath,prefixTag, configTemplate="config.csv"):
     for i in  range(len(periodVec)):
         rf=periodVec[i]
         sf=pS[i]
         print(sf)
-        runPeriod(exePath, rf,sf,algoTag, resultPath, configTemplate,prefixTag[i])
+        runPeriod(exePath, rf,sf,algo, resultPath, configTemplate,prefixTag[i])
 
 
 def readResultSingle(singleValue, resultPath):
@@ -102,19 +104,17 @@ def readResultVector(singleValueVec, resultPath):
         errorBoundRatioVec),np.array(thrVec)
 
 
-def compareMethod(exeSpace, commonPathBase, resultPaths, csvTemplate, srcAVec,srcBVec,algos,dataSetName,reRun=1):
+def compareMethod(exeSpace, commonPathBase, csvTemplate, srcAVec,srcBVec,algos,dataSetName,reRun=1):
     elapsedTimeAll = []
     periodAll = []
     froAll = []
     errorBoundRatioAll = []
     thrAll=[]
-    for i in range(len(algos)):
-        resultPath = commonPathBase + resultPaths[i]
-        algoTag=algos[i]
+    for algo in algos:
+        resultPath = commonPathBase + algo.resultPath
         if (reRun == 1):
-            os.system("sudo rm -rf " + resultPath)
-            os.system("sudo mkdir " + resultPath)
-            runPeriodVector(exeSpace, srcAVec,srcBVec,algoTag, resultPath, dataSetName,csvTemplate)
+            cleanPath(resultPath)
+            runPeriodVector(exeSpace, srcAVec,srcBVec,algo, resultPath, dataSetName,csvTemplate)
         #exit()
         elapsedTime, fro, eb,thr = readResultVector(dataSetName, resultPath)
         elapsedTimeAll.append(elapsedTime)
@@ -185,12 +185,12 @@ def main():
     srcAVec=["datasets/AST/mcfe.mtx","datasets/DWAVE/dwa512.mtx",'datasets/ECO/wm2.mtx','datasets/QCD/qcda_small.mtx','datasets/RDB/rdb2048.mtx','datasets/UTM/utm1700a.mtx','datasets/ZENIOS/zenios.mtx']
     srcBVec=["datasets/AST/mcfe.mtx","datasets/DWAVE/dwb512.mtx",'datasets/ECO/wm3.mtx','datasets/QCD/qcdb_small.mtx','datasets/RDB/rdb2048l.mtx','datasets/UTM/utm1700b.mtx','datasets/ZENIOS/zenios.mtx']
     dataSetNames=['AST','DWAVE','ECO','QCD','RDB','UTM','ZENIOS']
+
     # add the algo tag here
-    algosVec=['mm','crs']
+    algos = [MM_CPP, CRS_CPP]
+    methodTags = list(map(lambda algo: algo.name, algos))
     # this template configs all algos as lazy mode, all datasets are static and normalized    
     csvTemplate = 'config_e2e_sl.csv'
-    # do not change the following
-    resultPaths = algosVec
 
     # run
     reRun = 0
@@ -201,8 +201,8 @@ def main():
         os.system("sudo rm -rf " + commonBasePath)
         os.system("sudo mkdir " + commonBasePath)
         reRun = 1
-    methodTags =algosVec
-    lat95All, errAll, ebAll,thrAll,periodAll = compareMethod(exeSpace, commonBasePath, resultPaths, csvTemplate, srcAVec,srcBVec,algosVec,dataSetNames, reRun)
+
+    lat95All, errAll, ebAll,thrAll,periodAll = compareMethod(exeSpace, commonBasePath, csvTemplate, srcAVec,srcBVec,algos,dataSetNames, reRun)
     print(lat95All[0][0])
     errAll=np.array(errAll)*100.0
     #draw2yBar(methodTags,[lat95All[0][0],lat95All[1][0],lat95All[2][0],lat95All[3][0]],[errAll[0][0],errAll[1][0],errAll[2][0],errAll[3][0]],'95% latency (ms)','Error (%)',figPath + "sec6_5_stock_q1_normal")

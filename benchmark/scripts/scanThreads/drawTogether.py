@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import sys, os
+sys.path.append(os.path.abspath(os.path.join('..', 'common')))
+
 import csv
 import numpy as np
 import accuBar as accuBar
@@ -7,7 +10,6 @@ import groupBar2 as groupBar2
 import groupLine as groupLine
 from autoParase import *
 import itertools as it
-import os
 
 import matplotlib
 import numpy as np
@@ -15,9 +17,7 @@ import pylab
 import matplotlib.font_manager as fm
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import LogLocator, LinearLocator
-import os
 import pandas as pd
-import sys
 from OoOCommon import *
 import time
 
@@ -51,27 +51,29 @@ matplotlib.rcParams['pdf.fonttype'] = 42
 scanTag = "threads"
 
 
-def singleRun(exePath, singleValue, resultPath, configTemplate):
+def singleRun(exePath, scanTag, singleValue, resultPath, configTemplate, algo):
     # resultFolder="singleValueTests"
     configFname = "config_" + scanTag + str(singleValue) + ".csv"
     # configTemplate = "config.csv"
     # clear old files
     os.system("cd " + exePath + "&& sudo rm *.csv")
 
+    df = algo.config.copy()
+    df.loc[scanTag] = [singleValue, 'U64']
     # editConfig(configTemplate, exePath + configFname, "earlierEmitMs", 0)
-    editConfig(configTemplate, exePath + configFname, scanTag, singleValue)
+    editConfig(configTemplate, exePath + configFname, df)
     # prepare new file
     # run
     os.system("cd " + exePath + "&& sudo env OMP_NUM_THREADS=1 ./benchmark " + configFname)
     # copy result
-    os.system("sudo rm -rf " + resultPath + "/" + str(singleValue))
-    os.system("sudo mkdir " + resultPath + "/" + str(singleValue))
+    cleanPath(resultPath + "/" + str(singleValue))
+    cleanPath(resultPath + "/" + str(singleValue))
     os.system("cd " + exePath + "&& sudo cp *.csv " + resultPath + "/" + str(singleValue))
 
 
-def runScanVector(exePath, singleValueVec, resultPath, templateName="config.csv"):
+def runScanVector(exePath, scanTag, singleValueVec, resultPath, templateName, algo):
     for i in singleValueVec:
-        singleRun(exePath, i, resultPath, templateName)
+        singleRun(exePath, scanTag, i, resultPath, templateName, algo)
 
 
 def readResultSingle(singleValue, resultPath):
@@ -82,11 +84,6 @@ def readResultSingle(singleValue, resultPath):
     froError = readConfig(resultFname, "froError")
     errorBoundRatio = readConfig(resultFname, "errorBoundRatio")
     return elapsedTime, cacheMiss, cacheRefs, froError, errorBoundRatio
-
-
-def cleanPath(path):
-    os.system("sudo rm -rf " + path)
-    os.system("sudo mkdir " + path)
 
 
 def readResultVector(singleValueVec, resultPath):
@@ -106,19 +103,18 @@ def readResultVector(singleValueVec, resultPath):
         errorBoundRatioVec)
 
 
-def compareMethod(exeSpace, commonPathBase, resultPaths, csvTemplates, periodVec, reRun=1):
+def compareMethod(exeSpace, commonPathBase, scanTag, algos, csvTemplate, periodVec, reRun=1):
     elapsedTimeAll = []
     cacheMissAll = []
     cacheRefAll = []
     periodAll = []
     froAll = []
     errorBoundRatioAll = []
-    for i in range(len(csvTemplates)):
-        resultPath = commonPathBase + resultPaths[i]
+    for algo in algos:
+        resultPath = commonPathBase + algo.resultPath
         if (reRun == 1):
-            os.system("sudo rm -rf " + resultPath)
-            os.system("sudo mkdir " + resultPath)
-            runScanVector(exeSpace, periodVec, resultPath, csvTemplates[i])
+            cleanPath(resultPath)
+            runScanVector(exeSpace, scanTag, periodVec, resultPath, csvTemplate, algo)
         elapsedTime, cacheMiss, cacheRef, fro, eb = readResultVector(periodVec, resultPath)
         elapsedTimeAll.append(elapsedTime)
         cacheMissAll.append(cacheMiss)
@@ -133,25 +129,26 @@ def compareMethod(exeSpace, commonPathBase, resultPaths, csvTemplates, periodVec
 
 def main():
     exeSpace = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/"
-    resultPath = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag
+    commonBase = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag + "/"
     figPath = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/figures/" + scanTag
-    configTemplate = exeSpace + "config.csv"
-    commonBase = resultPath + "/"
-    resultPaths = ["mm", "crs", "ews", "counterSketch", "cofd", "tow", "weighted-cr", "smp-pca"]
-    csvTemplates = ["config_CPPMM.csv", "config_CPPCRS.csv", "config_CPPEWS.csv", "config_CPPCOUNTERSKETCH.csv",
-                    "config_CPPCOFD.csv", "config_CPPTOW.csv", "config_CPPWeightedCR.csv", "config_CPPSMPPCA.csv"]
-    methodTags = ["mm", "crs", "ews", "counterSketch", "cofd", "tow", "weighted-cr", "smp-pca"]
+
+    algos = [MM_CPP, CRS_CPP, EWS_CPP, COUNT_SKETCH_CPP, COOFD_CPP, TUG_OF_WAR_CPP,
+             WEIGHTED_CRS_CPP, SMP_PCA_CPP]
+    methodTags = list(map(lambda algo: algo.name, algos))
+
+    csvTemplate = "config.csv"
+
     valueVec = [2, 4, 6, 8, 10, 12]
-    valueVecRun = valueVec
-    print(configTemplate)
-    reRun = 0
+    valueVecDisp = np.array(valueVec)
+
     # run
+    reRun = 0
     if (len(sys.argv) < 2):
         os.system("mkdir ../../results")
         os.system("mkdir ../../figures")
+        os.system("sudo rm -rf " + commonBase)
+        os.system("sudo mkdir " + commonBase)
         os.system("mkdir " + figPath)
-        os.system("sudo rm -rf " + resultPath)
-        os.system("sudo mkdir " + resultPath)
         #
         reRun = 1
         tRows = len(resultPaths)
@@ -160,10 +157,11 @@ def main():
         froErroAllSum = np.zeros((tRows, tCols))
         errorBoundRatioSum = np.zeros((tRows, tCols))
         cacheMissAll = np.zeros((tRows, tCols))
+
     rounds = 1
     for i in range(rounds):
-        elapseTimeAll, ch, periodAll, fro, eb = compareMethod(exeSpace, commonBase, resultPaths, csvTemplates, valueVec,
-                                                              reRun)
+        elapseTimeAll, ch, periodAll, fro, eb = compareMethod(exeSpace, commonBase, scanTag,
+                                                                         algos, csvTemplate, valueVec, reRun)
         elapseTimeAllSum = elapseTimeAllSum + elapseTimeAll
         froErroAllSum = froErroAllSum + fro
         errorBoundRatioSum = errorBoundRatioSum + eb

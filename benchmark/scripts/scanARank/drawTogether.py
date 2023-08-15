@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import sys, os
+sys.path.append(os.path.abspath(os.path.join('..', 'common')))
+
 import csv
 import numpy as np
 import accuBar as accuBar
@@ -7,7 +10,6 @@ import groupBar2 as groupBar2
 import groupLine as groupLine
 from autoParase import *
 import itertools as it
-import os
 
 import matplotlib
 import numpy as np
@@ -15,9 +17,7 @@ import pylab
 import matplotlib.font_manager as fm
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import LogLocator, LinearLocator
-import os
 import pandas as pd
-import sys
 from OoOCommon import *
 import time
 
@@ -51,27 +51,29 @@ matplotlib.rcParams['pdf.fonttype'] = 42
 scanTag = "aReduce"
 
 
-def singleRun(exePath, singleValue, resultPath, configTemplate):
+def singleRun(exePath, scanTag, singleValue, resultPath, configTemplate, algo):
     # resultFolder="singleValueTests"
     configFname = "config_" + scanTag + str(singleValue) + ".csv"
     # configTemplate = "config.csv"
     # clear old files
     os.system("cd " + exePath + "&& sudo rm *.csv")
 
+    df = algo.config.copy()
+    df.loc[scanTag] = [singleValue, 'U64']
     # editConfig(configTemplate, exePath + configFname, "earlierEmitMs", 0)
-    editConfig(configTemplate, exePath + configFname, scanTag, singleValue)
+    editConfig(configTemplate, exePath + configFname, df)
     # prepare new file
     # run
     os.system("cd " + exePath + "&& sudo env OMP_NUM_THREADS=1 ./benchmark " + configFname)
     # copy result
-    os.system("sudo rm -rf " + resultPath + "/" + str(singleValue))
-    os.system("sudo mkdir " + resultPath + "/" + str(singleValue))
+    cleanPath(resultPath + "/" + str(singleValue))
+    cleanPath(resultPath + "/" + str(singleValue))
     os.system("cd " + exePath + "&& sudo cp *.csv " + resultPath + "/" + str(singleValue))
 
 
-def runScanVector(exePath, singleValueVec, resultPath, templateName="config.csv"):
+def runScanVector(exePath, scanTag, singleValueVec, resultPath, templateName, algo):
     for i in singleValueVec:
-        singleRun(exePath, i, resultPath, templateName)
+        singleRun(exePath, scanTag, i, resultPath, templateName, algo)
 
 
 def readResultSingle(singleValue, resultPath):
@@ -79,71 +81,99 @@ def readResultSingle(singleValue, resultPath):
     elapsedTime = readConfig(resultFname, "perfElapsedTime")
     cacheMiss = readConfig(resultFname, "cacheMiss")
     cacheRefs = readConfig(resultFname, "cacheRefs")
-    return elapsedTime, cacheMiss, cacheRefs
-
-
-def cleanPath(path):
-    os.system("sudo rm -rf " + path)
-    os.system("sudo mkdir " + path)
+    froError = readConfig(resultFname, "froError")
+    errorBoundRatio = readConfig(resultFname, "errorBoundRatio")
+    return elapsedTime, cacheMiss, cacheRefs, froError, errorBoundRatio
 
 
 def readResultVector(singleValueVec, resultPath):
     elapseTimeVec = []
     cacheMissVec = []
     cacheRefVec = []
+    froErrorVec = []
+    errorBoundRatioVec = []
     for i in singleValueVec:
-        elapsedTime, cacheMiss, cacheRefs = readResultSingle(i, resultPath)
+        elapsedTime, cacheMiss, cacheRefs, froError, errorBoundRatio = readResultSingle(i, resultPath)
         elapseTimeVec.append(float(elapsedTime) / 1000.0)
         cacheMissVec.append(float(cacheMiss))
         cacheRefVec.append(float(cacheRefs))
-    return np.array(elapseTimeVec), np.array(cacheMissVec), np.array(cacheRefVec)
+        froErrorVec.append(float(froError))
+        errorBoundRatioVec.append(float(errorBoundRatio))
+    return np.array(elapseTimeVec), np.array(cacheMissVec), np.array(cacheRefVec), np.array(froErrorVec), np.array(
+        errorBoundRatioVec)
+
+
+def compareMethod(exeSpace, commonPathBase, scanTag, algos, csvTemplate, periodVec, reRun=1):
+    elapsedTimeAll = []
+    cacheMissAll = []
+    cacheRefAll = []
+    periodAll = []
+    froAll = []
+    errorBoundRatioAll = []
+    for algo in algos:
+        resultPath = commonPathBase + algo.resultPath
+        if (reRun == 1):
+            cleanPath(resultPath)
+            runScanVector(exeSpace, scanTag, periodVec, resultPath, csvTemplate, algo)
+        elapsedTime, cacheMiss, cacheRef, fro, eb = readResultVector(periodVec, resultPath)
+        elapsedTimeAll.append(elapsedTime)
+        cacheMissAll.append(cacheMiss)
+        cacheRefAll.append(cacheRef)
+        periodAll.append(periodVec)
+        cacheMissRateAll = np.array(cacheMissAll) / np.array(cacheRefAll) * 100.0
+        froAll.append(fro)
+        errorBoundRatioAll.append(eb)
+        # periodAll.append(periodVec)
+    return np.array(elapsedTimeAll), cacheMissRateAll, periodAll, np.array(froAll), np.array(errorBoundRatioAll)
 
 
 def main():
     exeSpace = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/"
-    resultPath = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag
-    resultPathFDAMM = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag + "/FDAMM"
-    resultPathCoFD = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag + "/CoFD"
-    resultPathBetaCoFD = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag + "/BCoFD"
-    resultPathRAWMM = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag + "/RAWMM"
+    commonBase = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag + "/"
     figPath = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/figures/" + scanTag
-    configTemplate = exeSpace + "config.csv"
+
+    algos = [MM_PY, COOFD_PY, BCOOFD_PY]
+    methodTags = list(map(lambda algo: algo.name, algos))
+
+    csvTemplate = "config.csv"
+
     valueVec = [2, 5, 10, 20, 50, 100, 200, 500, 900]
-    valueVecRun = 1000 - np.array(valueVec)
-    print(configTemplate)
+    valueVec = list(map(lambda x: 1000-x, valueVec))
+    valueVecDisp = np.array(valueVec)
+
     # run
+    reRun = 0
     if (len(sys.argv) < 2):
         os.system("mkdir ../../results")
         os.system("mkdir ../../figures")
+        os.system("sudo rm -rf " + commonBase)
+        os.system("sudo mkdir " + commonBase)
         os.system("mkdir " + figPath)
-        os.system("sudo rm -rf " + resultPath)
-        os.system("sudo mkdir " + resultPath)
-        #
-        cleanPath(resultPathFDAMM)
-        cleanPath(resultPathCoFD)
-        cleanPath(resultPathBetaCoFD)
-        cleanPath(resultPathRAWMM)
-        #
-        runScanVector(exeSpace, valueVecRun, resultPathFDAMM, "config_FDAMM.csv")
-        runScanVector(exeSpace, valueVecRun, resultPathCoFD, "config_CoAMM.csv")
-        runScanVector(exeSpace, valueVecRun, resultPathBetaCoFD, "config_BCoAMM.csv")
-        runScanVector(exeSpace, valueVecRun, resultPathRAWMM, "config_RAWMM.csv")
-    evaTypes = ['FDAMM', 'MM', 'Co-FD', 'BCO-FD']
-    elapseTimeVecFD, cacheMissVecFD, cacheRefVecFD = readResultVector(valueVecRun, resultPathFDAMM)
-    elapseTimeVecCoFD, cacheMissVecCoFD, cacheRefVecCoFD = readResultVector(valueVecRun, resultPathCoFD)
-    elapseTimeVeCB, cacheMissVecB, cacheRefVecB = readResultVector(valueVecRun, resultPathBetaCoFD)
-    elapseTimeVecRAW, cacheMissVecRAW, cacheRefVecRAW = readResultVector(valueVecRun, resultPathRAWMM)
-    # os.system("mkdir " + figPath)
-    groupLine.DrawFigureYnormal([valueVec, valueVec, valueVec, valueVec],
-                                [elapseTimeVecFD, elapseTimeVecRAW, elapseTimeVecCoFD, elapseTimeVeCB],
-                                evaTypes,
-                                "Rank of matrix A", "elapsed time (ms)", 0, 1, figPath + "Rank" + "_elapsedTime",
+        reRun = 1
+
+    elapsedTimeAll, cacheMissAll, periodAll, fro, eb = compareMethod(exeSpace, commonBase, scanTag,
+                                                                     algos, csvTemplate, valueVec, reRun)
+    groupLine.DrawFigure(periodAll, elapsedTimeAll,
+                         methodTags,
+                         "A's rank", "elapsed time (ms)", 0, 1,
+                         figPath + "/" + scanTag + "_elapsedTime",
+                         True)
+    groupLine.DrawFigureYnormal(periodAll, cacheMissAll,
+                                methodTags,
+                                "A's Rank", "cacheMiss (%)", 0, 1,
+                                figPath + "/" + scanTag + "_cacheMiss",
                                 True)
-    groupLine.DrawFigureYnormal([valueVec, valueVec, valueVec, valueVec],
-                                [cacheMissVecFD / cacheRefVecFD * 100.0, cacheMissVecRAW / cacheRefVecRAW * 100.0,
-                                 cacheMissVecCoFD / cacheRefVecCoFD * 100.0, cacheMissVecB / cacheRefVecB * 100.0],
-                                evaTypes,
-                                "Rank of matrix A", "cacheMiss (%)", 0, 1, figPath + "Rank" + "_cacheMiss",
+    groupLine.DrawFigureYnormal(periodAll,
+                                fro * 100.0,
+                                methodTags,
+                                "A's Rank", "normalized error %", 0, 100, figPath + "/" + scanTag +
+                                "_froError",
+                                True)
+    groupLine.DrawFigureYnormal(periodAll,
+                                eb * 100.0,
+                                methodTags,
+                                "A's Rank", "error bound ratio %", 0, 100, figPath + "/" + scanTag
+                                + "_ebRatio",
                                 True)
     # draw2yLine("watermark time (ms)",singleValueVecDisp,lat95Vec,errVec,"95% Latency (ms)","Error","ms","",figPath+"wm_lat")
     # draw2yLine("watermark time (ms)",singleValueVecDisp,thrVec,errVec,"Throughput (KTp/s)","Error","KTp/s","",figPath+"wm_thr")

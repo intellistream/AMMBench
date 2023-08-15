@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import sys, os
+sys.path.append(os.path.abspath(os.path.join('..', 'common')))
+
 # I will streaming A and B!!!
 import csv
 import numpy as np
@@ -8,7 +11,6 @@ import groupBar2 as groupBar2
 import groupLine as groupLine
 from autoParase import *
 import itertools as it
-import os
 
 import matplotlib
 import numpy as np
@@ -16,9 +18,7 @@ import pylab
 import matplotlib.font_manager as fm
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import LogLocator, LinearLocator
-import os
 import pandas as pd
-import sys
 from OoOCommon import *
 import time
 
@@ -52,28 +52,29 @@ matplotlib.rcParams['pdf.fonttype'] = 42
 scanTag = "eventRateTps"
 
 
-def singleRun(exePath, singleValue, resultPath, configTemplate):
+def singleRun(exePath, scanTag, singleValue, resultPath, configTemplate, algo):
     # resultFolder="singleValueTests"
     configFname = "config_" + scanTag + str(singleValue) + ".csv"
     # configTemplate = "config.csv"
     # clear old files
     os.system("cd " + exePath + "&& sudo rm *.csv")
 
+    df = algo.config.copy()
+    df.loc[scanTag] = [singleValue, 'U64']
     # editConfig(configTemplate, exePath + configFname, "earlierEmitMs", 0)
-    editConfig(configTemplate, exePath + configFname, scanTag, singleValue)
+    editConfig(configTemplate, exePath + configFname, df)
     # prepare new file
     # run
     os.system("cd " + exePath + "&& sudo env OMP_NUM_THREADS=1 ./benchmark " + configFname)
     # copy result
-    os.system("sudo rm -rf " + resultPath + "/" + str(singleValue))
-    os.system("sudo mkdir " + resultPath + "/" + str(singleValue))
+    cleanPath(resultPath + "/" + str(singleValue))
+    cleanPath(resultPath + "/" + str(singleValue))
     os.system("cd " + exePath + "&& sudo cp *.csv " + resultPath + "/" + str(singleValue))
 
 
-def runScanVector(exePath, singleValueVec, resultPath, templateName="config.csv"):
+def runScanVector(exePath, scanTag, singleValueVec, resultPath, templateName, algo):
     for i in singleValueVec:
-        singleRun(exePath, i, resultPath, templateName)
-
+        singleRun(exePath, scanTag, i, resultPath, templateName, algo)
 
 def readResultSingle(singleValue, resultPath):
     resultFname = resultPath + "/" + str(singleValue) + "/result_streaming.csv"
@@ -82,11 +83,6 @@ def readResultSingle(singleValue, resultPath):
     froError = readConfig(resultFname, "froError")
     errorBoundRatio = readConfig(resultFname, "errorBoundRatio")
     return throughput, lat95, froError, errorBoundRatio
-
-
-def cleanPath(path):
-    os.system("sudo rm -rf " + path)
-    os.system("sudo mkdir " + path)
 
 
 def readResultVector(singleValueVec, resultPath):
@@ -103,19 +99,17 @@ def readResultVector(singleValueVec, resultPath):
     return np.array(thrVec), np.array(lat95Vec), np.array(froErrorVec), np.array(
         errorBoundRatioVec)
 
-
-def compareMethod(exeSpace, commonPathBase, resultPaths, csvTemplates, periodVec, reRun=1):
+def compareMethod(exeSpace, commonPathBase, scanTag, algos, csvTemplate, periodVec, reRun=1):
     thrAll = []
     lat95All = []
     periodAll = []
     froAll = []
     errorBoundRatioAll = []
-    for i in range(len(csvTemplates)):
-        resultPath = commonPathBase + resultPaths[i]
+    for algo in algos:
+        resultPath = commonPathBase + algo.resultPath
         if (reRun == 1):
-            os.system("sudo rm -rf " + resultPath)
-            os.system("sudo mkdir " + resultPath)
-            runScanVector(exeSpace, periodVec, resultPath, csvTemplates[i])
+            cleanPath(resultPath)
+            runScanVector(exeSpace, scanTag, periodVec, resultPath, csvTemplate, algo)
         thr, lat95, fro, eb = readResultVector(periodVec, resultPath)
         thrAll.append(thr)
         lat95All.append(lat95)
@@ -132,9 +126,11 @@ def main():
     exeSpace = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/"
     commonBase = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag + "2S" + "/"
     figPath = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/figures/" + scanTag + "2s" + "CPP"
-    methodTags = ["CRS", "MM", "SMP-PCA"]
-    resultPaths = ["CRS", "mm", "smp-pca"]
-    csvTemplates = ["config_CPPCRS.csv", "config_CPPMM.csv", "config_CPPSMPPCA.csv"]
+
+    algos = [MM_CPP, CRSV2_CPP, SMP_PCA_CPP, COUNT_SKETCH_CPP, PQ_HASH_CPP, TUG_OF_WAR_CPP]
+    methodTags = list(map(lambda algo: algo.name, algos))
+
+    csvTemplate = "config.csv"
     valueVec = [100, 200, 500, 1000, 2000, 5000]
     valueVecDisp = np.array(valueVec)
     # run
@@ -148,8 +144,8 @@ def main():
 
         reRun = 1
     # skech
-    thrAll, lat95All, periodAll, fro, eb = compareMethod(exeSpace, commonBase, resultPaths, csvTemplates, valueVec,
-                                                         reRun)
+    thrAll, lat95All, periodAll, fro, eb = compareMethod(exeSpace, commonBase, scanTag,
+                                                                  algos, csvTemplate, valueVec, reRun)
     groupLine.DrawFigureYnormal(periodAll, thrAll / 1000.0,
                                 methodTags,
                                 "event rate (#rows/s)", "throughput (K elements/s)", 0, 1,

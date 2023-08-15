@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import sys, os
+sys.path.append(os.path.abspath(os.path.join('..', 'common')))
+
 import csv
 import numpy as np
 import accuBar as accuBar
@@ -7,7 +10,6 @@ import groupBar2 as groupBar2
 import groupLine as groupLine
 from autoParase import *
 import itertools as it
-import os
 
 import matplotlib
 import numpy as np
@@ -15,9 +17,7 @@ import pylab
 import matplotlib.font_manager as fm
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import LogLocator, LinearLocator
-import os
 import pandas as pd
-import sys
 from OoOCommon import *
 import time
 

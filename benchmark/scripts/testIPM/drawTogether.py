@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import sys, os
+sys.path.append(os.path.abspath(os.path.join('..', 'common')))
+
 import csv
 import numpy as np
 import accuBar as accuBar
@@ -7,7 +10,6 @@ import groupBar2 as groupBar2
 import groupLine as groupLine
 from autoParase import *
 import itertools as it
-import os
 
 import matplotlib
 import numpy as np
@@ -15,11 +17,10 @@ import pylab
 import matplotlib.font_manager as fm
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import LogLocator, LinearLocator
-import os
 import pandas as pd
-import sys
 from OoOCommon import *
 import time
+from algorithms import *
 
 # OPT_FONT_NAME = 'Helvetica'
 TICK_FONT_SIZE = 22
@@ -51,28 +52,29 @@ matplotlib.rcParams['pdf.fonttype'] = 42
 scanTag = "aRow"
 
 
-def singleRun(exePath, singleValue, resultPath, configTemplate):
+def singleRun(exePath, singleValue, resultPath, configTemplate, algo):
     # resultFolder="singleValueTests"
     configFname = "config_" + scanTag + str(singleValue) + ".csv"
     # configTemplate = "config.csv"
     # clear old files
     os.system("cd " + exePath + "&& sudo rm *.csv")
 
+    df = algo.config.copy()
+    df.loc[scanTag] = [singleValue, 'U64']
     # editConfig(configTemplate, exePath + configFname, "earlierEmitMs", 0)
-    editConfig(configTemplate, exePath + configFname, scanTag, singleValue)
+    editConfig(configTemplate, exePath + configFname, df)
     # prepare new file
     # run
-    # os.system('export OMP_NUM_THREADS=1')
     os.system("cd " + exePath + "&& sudo env OMP_NUM_THREADS=1 ./benchmark " + configFname)
     # copy result
-    os.system("sudo rm -rf " + resultPath + "/" + str(singleValue))
-    os.system("sudo mkdir " + resultPath + "/" + str(singleValue))
+    cleanPath(resultPath + "/" + str(singleValue))
+    cleanPath(resultPath + "/" + str(singleValue))
     os.system("cd " + exePath + "&& sudo cp *.csv " + resultPath + "/" + str(singleValue))
 
 
-def runScanVector(exePath, singleValueVec, resultPath, templateName="config.csv"):
+def runScanVector(exePath, singleValueVec, resultPath, templateName, algo):
     for i in singleValueVec:
-        singleRun(exePath, i, resultPath, templateName)
+        singleRun(exePath, i, resultPath, templateName, algo)
 
 
 def readResultSingle(singleValue, resultPath):
@@ -84,11 +86,6 @@ def readResultSingle(singleValue, resultPath):
     instructions = readConfig(resultFname, "instructions")
     errorBoundRatio = readConfig(resultFname, "errorBoundRatio")
     return elapsedTime, cacheMiss, cacheRefs, froError, errorBoundRatio, instructions
-
-
-def cleanPath(path):
-    os.system("sudo rm -rf " + path)
-    os.system("sudo mkdir " + path)
 
 
 def readResultVector(singleValueVec, resultPath):
@@ -110,7 +107,7 @@ def readResultVector(singleValueVec, resultPath):
         errorBoundRatioVec), np.array(instructionVec)
 
 
-def compareMethod(exeSpace, commonPathBase, resultPaths, csvTemplates, periodVec, reRun=1):
+def compareMethod(exeSpace, commonPathBase, algos, csvTemplate, periodVec, reRun=1):
     elapsedTimeAll = []
     cacheMissAll = []
     cacheRefAll = []
@@ -119,12 +116,11 @@ def compareMethod(exeSpace, commonPathBase, resultPaths, csvTemplates, periodVec
     errorBoundRatioAll = []
     insAll = []
     memAll = []
-    for i in range(len(csvTemplates)):
-        resultPath = commonPathBase + resultPaths[i]
+    for algo in algos:
+        resultPath = commonPathBase + algo.resultPath
         if (reRun == 1):
-            os.system("sudo rm -rf " + resultPath)
-            os.system("sudo mkdir " + resultPath)
-            runScanVector(exeSpace, periodVec, resultPath, csvTemplates[i])
+            cleanPath(resultPath)
+            runScanVector(exeSpace, periodVec, resultPath, csvTemplate, algo)
         elapsedTime, cacheMiss, cacheRef, fro, eb, insv = readResultVector(periodVec, resultPath)
         elapsedTimeAll.append(elapsedTime)
         cacheMissAll.append(cacheMiss)
@@ -144,29 +140,26 @@ def main():
     exeSpace = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/"
     commonBase = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/" + scanTag + "IPM/"
     figPath = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/figures/" + scanTag + "CPPIPM"
-    # methodTags = ["Co-AMM", "BCo-AMM", "Count-sketch", "Tug-of-War", "SMP-PCA", "MM"]
+
+    algos = [CRS_CPP, SMP_PCA_CPP, COOFD_CPP, MM_CPP]
+    methodTags = list(map(lambda algo: algo.name, algos))
+
+    csvTemplate = "config.csv"
     valueVec = [100, 200, 500, 1000, 2000, 5000]
     # run
     reRun = 0
-
     if (len(sys.argv) < 2):
         os.system("mkdir ../../results")
         os.system("mkdir ../../figures")
-        os.system("mkdir " + figPath)
         os.system("sudo rm -rf " + commonBase)
         os.system("sudo mkdir " + commonBase)
+        os.system("mkdir " + figPath)
         reRun = 1
+
     # sampling
-    # resultPaths = ["crs", "bcrs", "ews", "mm","mm-cpp","crs-cpp"]
-    resultPaths = ["crs", "smp-pca", "cofd", "mm"]
-    csvTemplates = ["config_CPPCRS.csv", "config_CPPSMPPCA.csv", "config_CPPCOFD.csv", "config_CPPMM.csv"]
-    methodTags = ["CRS", "SMP-PCA", "COFD", "MM"]
-    # csvTemplates = ["config_CRS.csv", "config_BerCRS.csv", "config_EWS.csv", "config_RAWMM.csv","config_CPPMM.csv","config_CPPCRS.csv"]
-    # methodTags = ["CRS", "Ber-CRS", "EWS",, "MM","MM_CPP","CRS_CPP"]
-    elapsedTimeAll, cacheMissAll, periodAll, fro, eb, ins, mem = compareMethod(exeSpace, commonBase, resultPaths,
-                                                                               csvTemplates,
-                                                                               valueVec,
-                                                                               reRun)
+    elapsedTimeAll, cacheMissAll, periodAll, fro, eb, ins, mem = compareMethod(exeSpace, commonBase,
+                                                                     algos, csvTemplate, valueVec, reRun)
+
     groupLine.DrawFigureYnormal(periodAll,
                                 ins,
                                 methodTags,
@@ -185,13 +178,12 @@ def main():
                                 "#A's row", "ipm", 0, 100, figPath + "/" + scanTag
                                 + "sampling_cpp_ipm",
                                 True)
-    resultPaths = ["crs", "smp-pca", "mm"]
-    csvTemplates = ["config_CPPCRS.csv", "config_CPPSMPPCA.csv", "config_CPPMM.csv"]
-    methodTags = ["CRS", "SMP-PCA", "MM"]
-    elapsedTimeAll, cacheMissAll, periodAll, fro, eb, ins, mem = compareMethod(exeSpace, commonBase, resultPaths,
-                                                                               csvTemplates,
-                                                                               valueVec,
-                                                                               reRun)
+
+    algos = [CRS_CPP, SMP_PCA_CPP, MM_CPP]
+    methodTags = list(map(lambda algo: algo.name, algos))
+    elapsedTimeAll, cacheMissAll, periodAll, fro, eb, ins, mem = compareMethod(exeSpace, commonBase,
+                                                                     algos, csvTemplate, valueVec, reRun)
+
     groupLine.DrawFigureYnormal(periodAll,
                                 ins,
                                 methodTags,
