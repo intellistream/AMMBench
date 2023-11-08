@@ -60,7 +60,9 @@ def runPeriod(exePath, srcA,srcB, algoTag, resultPath, configTemplate="config.cs
 
     # (Pdb) exePath, srcA,srcB, algoTag, resultPath, configTemplate,prefixTag
     # ('/home/yuhao/Documents/work/SUTD/AMM/codespace/NEWAMMBENCH/AMMBench/benchmark/', 'dummy', 'dummy', 'int8', '/home/yuhao/Documents/work/SUTD/AMM/codespace/NEWAMMBENCH/AMMBench/benchmark/results/Downstream_Inference_static_lazy/int8', 'config_dnn_inference.csv', 'cifar10')
-
+    os.system("sudo rm -rf " + resultPath + "/" + str(prefixTag))
+    os.system("sudo mkdir " + resultPath + "/" + str(prefixTag))
+    os.system("sudo chmod 777 "+ resultPath + "/" + str(prefixTag))
     # resultFolder="periodTests"
     configFname = "config_period_"+prefixTag + ".csv"
     configTemplate = "config_dnn_inference.csv"
@@ -92,50 +94,80 @@ def runPeriod(exePath, srcA,srcB, algoTag, resultPath, configTemplate="config.cs
     editConfig(exePath+"temp1.csv",exePath+configFname, "pqvqCodewordLookUpTablePath", pqvqCodewordLookUpTablePath)
 
     # clean dir
-    os.system("rm -rf " + resultPath + "/" + str(prefixTag))
-    os.system("mkdir " + resultPath + "/" + str(prefixTag))
+    
 
     # prepare new file
     # run
-    import subprocess
     from os.path import join
     command = f"export OMP_NUM_THREADS=1 && \
         cd {join(exePath, 'scripts/Downstream_Inference/bolt/experiments')} && \
         python3 -m python.amm_main \
             --task {prefixTag} \
             --config_load_path {join(exePath, configFname)} \
-            --metric_save_path {join(resultPath, prefixTag, 'DNNInferenceMetrics.csv')} \
-        2>&1 | tee {exePath}/execution_log.txt"
+            --metric_save_path {join(resultPath, prefixTag, 'DNNInferenceMetrics.csv')}"
     # command = f"export OMP_NUM_THREADS=1 && \
     #     cd {join(exePath, 'scripts/Downstream_Inference/bolt/experiments')} && \
     #     python3 -m python.amm_main \
     #         --task {prefixTag} \
     #         --config_load_path {join(exePath, configFname)} \
     #         --metric_save_path {join(resultPath, prefixTag, 'DNNInferenceMetrics.csv')}"
-    try:
-        subprocess.run(command, shell=True, check=True)
-    except:
-        pass
-        
+    
+   
+    os.system(command)
+    
+    os.system("cd " + exePath + "&& sudo cp *.csv execution_log.txt " + resultPath + "/" + str(prefixTag))     
     # copy result
-    os.system("cd " + exePath + "&& cp *.csv execution_log.txt " + resultPath + "/" + str(prefixTag))
 
 
-def runPeriodVector (exePath,periodVec,pS,algoTag,resultPath,prefixTag, configTemplate="config.csv"):
+
+def runPeriodVector (exePath,periodVec,pS,algoTag,resultPath,prefixTag, configTemplate="config.csv",reRun=1):
     for i in  range(len(periodVec)):
         rf=periodVec[i]
         sf=pS[i]
-        runPeriod(exePath, rf,sf,algoTag, resultPath, configTemplate,prefixTag[i])
-
+        print(sf)
+        if reRun==2:
+            if checkResultSingle(prefixTag[i],resultPath)==1:
+                print("skip "+prefixTag[i])
+            else:
+                runPeriod(exePath, rf,sf,algoTag, resultPath, configTemplate,prefixTag[i])
+        else:
+            runPeriod(exePath, rf,sf,algoTag, resultPath, configTemplate,prefixTag[i])
 
 def readResultSingle(singleValue, resultPath):
     resultFname = resultPath + "/" + str(singleValue) + "/DNNInferenceMetrics.csv"
-    elapsedTime = readConfig(resultFname, "AMM95%latency")
+    elapsedTime = readConfig(resultFname, "AMMPerfElapsedTime")
     froError = readConfig(resultFname, "AMMFroError")
     errorBoundRatio = 100
     thr=readConfig(resultFname, "AMMThroughput")
     endingAcc=readConfig(resultFname, "acc_amm")
     return elapsedTime, froError, errorBoundRatio,thr,endingAcc
+def checkDependecies(exePath):
+    if os.path.exists(exePath+"amm_inference_dep"):
+        print('dependecy installed, skip')
+        return
+    #1 kmc2
+    os.system("cd bolt/third_party/kmc2 &&"+ "pip install numpy==1.23.1 cython numba zstandard seaborn &&"+"python3 setup.py build_ext --build-lib=.")
+    #2 scikit
+    os.system("pip3 install -U scikit-learn scipy")
+    os.system("touch "+exePath+"amm_inference_dep")
+    print('install deps done')
+
+def checkResultSingle(singleValue, resultPath):
+    resultFname = resultPath + "/" + str(singleValue) + "/DNNInferenceMetrics.csv"
+    ruExists=0
+    if os.path.exists(resultFname):
+        ruExists=1
+    else:
+        print("File does not exist:"+resultFname)
+        ruExists=0
+    return ruExists
+def checkResultVector(singleValueVec, resultPath):
+    resultIsComplete=0
+    for i in singleValueVec:
+        resultIsComplete= checkResultSingle(i, resultPath)
+        if resultIsComplete==0:
+            return 0
+    return 1
 
 def readResultVector(singleValueVec, resultPath):
     elapseTimeVec = []
@@ -161,21 +193,34 @@ def compareMethod(exeSpace, commonPathBase, resultPaths, csvTemplate, srcAVec,sr
     errorBoundRatioAll = []
     thrAll=[]
     endingAccAll=[]
+    resultIsComplete=1
     for i in range(len(algos)):
         resultPath = commonPathBase + resultPaths[i]
         algoTag=algos[i]
+        os.system("sudo mkdir " + resultPath)
+        os.system("sudo chmod 777 "+resultPath)
         if (reRun == 1):
-            os.system("rm -rf " + resultPath)
-            os.system("mkdir " + resultPath)
+            os.system("sudo rm -rf " + resultPath)
             runPeriodVector(exeSpace, srcAVec,srcBVec,algoTag, resultPath, dataSetName,csvTemplate)
+        else:
+            if(reRun == 2):
+                resultIsComplete=checkResultVector(dataSetName,resultPath)
+                if resultIsComplete==1:
+                    print(algoTag+ " is complete, skip")
+                else:
+                    print(algoTag+ " is incomplete, redo it")
+                    runPeriodVector(exeSpace, srcAVec,srcBVec,algoTag, resultPath, dataSetName,csvTemplate,2)
+                    resultIsComplete=checkResultVector(dataSetName,resultPath)
+        
+        if resultIsComplete:
         #exit()
-        elapsedTime, fro, eb,thr,endingAcc = readResultVector(dataSetName, resultPath)
-        elapsedTimeAll.append(elapsedTime)
-        periodAll.append(dataSetName)
-        froAll.append(fro)
-        errorBoundRatioAll.append(eb)
-        thrAll.append(thr)
-        endingAccAll.append(endingAcc)
+            elapsedTime, fro, eb,thr,endingAcc = readResultVector(dataSetName, resultPath)
+            elapsedTimeAll.append(elapsedTime)
+            periodAll.append(dataSetName)
+            froAll.append(fro)
+            errorBoundRatioAll.append(eb)
+            thrAll.append(thr)
+            endingAccAll.append(endingAcc)
     return np.array(elapsedTimeAll), np.array(froAll), np.array(errorBoundRatioAll),np.array(thrAll),periodAll,np.array(endingAccAll)
         
 def draw2yBar(NAME,R1,R2,l1,l2,fname):
@@ -234,7 +279,7 @@ def main():
     commonBasePath = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/results/Downstream_Inference_static_lazy/"
 
     figPath = os.path.abspath(os.path.join(os.getcwd(), "../..")) + "/figures/Downstream_Inference_static_lazy/"
-    
+    checkDependecies(exeSpace)
     # add the datasets here
     # srcAVec=["datasets/AST/mcfe.mtx"] # 765*756
     # srcBVec=["datasets/AST/mcfe.mtx"] # 765*756
@@ -262,25 +307,21 @@ def main():
     # algosVec=['int8', 'crs', 'countSketch', 'cooFD', 'blockLRA', 'fastjlt', 'rip', 'smp-pca', 'weighted-cr', 'tugOfWar', 'int8_fp32', 'mm']
     # algoDisp=['INT8', 'CRS', 'CS', 'CoOFD', 'BlockLRA', 'FastJLT', 'RIP', 'SMP-PCA', 'WeightedCR', 'TugOfWar',  'NLMM', 'LTMM']
     
-    algosVec=['int8', 'crs', 'countSketch', 'cooFD', 'blockLRA', 'fastjlt', 'vq', 'pq', 'rip', 'smp-pca', 'weighted-cr', 'tugOfWar', 'int8_fp32', 'mm']
-    algoDisp=['INT8', 'CRS', 'CS', 'CoOFD', 'BlockLRA', 'FastJLT', 'VQ', 'PQ', 'RIP', 'SMP-PCA', 'WeightedCR', 'TugOfWar',  'NLMM', 'LTMM']
-    
+    #algosVec=['int8', 'crs', 'countSketch', 'cooFD', 'blockLRA', 'fastjlt', 'vq', 'pq', 'rip', 'smp-pca', 'weighted-cr', 'tugOfWar', 'int8_fp32', 'mm']
+    #algoDisp=['INT8', 'CRS', 'CS', 'CoOFD', 'BlockLRA', 'FastJLT', 'VQ', 'PQ', 'RIP', 'SMP-PCA', 'WeightedCR', 'TugOfWar',  'NLMM', 'LTMM']
+    algosVec=['crs']
+    algoDisp=['CRS']
     # add the algo tag here
     # algosVec=['int8', 'weighted-cr', 'vq', 'int8_fp32']
     # this template configs all algos as lazy mode, all datasets are static and normalized
     csvTemplate = 'config_dnn_inference.csv'
     # do not change the following
     resultPaths = algosVec
-
+    os.system("mkdir " + figPath)
+    os.system("sudo mkdir " + commonBasePath)
+    os.system("sudo chmod 777 "+commonBasePath)
     # run
-    reRun = 0
-    if (len(sys.argv) < 2):
-        os.system("mkdir ../../results")
-        os.system("mkdir ../../figures")
-        os.system("mkdir " + figPath)
-        os.system("rm -rf " + commonBasePath)
-        os.system("mkdir " + commonBasePath)
-        reRun = 1
+    reRun = 2
     methodTags =algoDisp
     lat95All, errAll, ebAll,thrAll,periodAll,endingAccAll = compareMethod(exeSpace, commonBasePath, resultPaths, csvTemplate, srcAVec,srcBVec,algosVec,dataSetNames, reRun)
     
@@ -290,8 +331,8 @@ def main():
     thrAll=np.array(thrAll)/1000.0
 
     # int8 = int8 / int8_fp32 * mm
-    lat95All[0] = lat95All[0]/lat95All[-2]*lat95All[-1]
-    thrAll[0] = thrAll[0]/thrAll[-2]*thrAll[-1]
+    #lat95All[0] = lat95All[0]/lat95All[-2]*lat95All[-1]
+    #thrAll[0] = thrAll[0]/thrAll[-2]*thrAll[-1]
 
     #draw2yBar(methodTags,[lat95All[0][0],lat95All[1][0],lat95All[2][0],lat95All[3][0]],[errAll[0][0],errAll[1][0],errAll[2][0],errAll[3][0]],'95% latency (ms)','Error (%)',figPath + "sec6_5_stock_q1_normal")
     groupBar2.DrawFigure(dataSetNames, errAll, methodTags, "Datasets", "Error (%)",
