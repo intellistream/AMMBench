@@ -66,11 +66,14 @@ def parseResult():
             accuracy.append(float(test_accuracy))
             time.append(float(time_19))
         else:
-            accuracy.append(0)
+            accuracy.append(100)
             time.append(0)
     return time, accuracy
 
 def main():
+    directory_path = "results"
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
     soSpace = os.path.abspath(os.path.join(os.getcwd(), "../../..")) + "/"
     torch.ops.load_library(soSpace+"libIntelliStream.so")
     runAll()
