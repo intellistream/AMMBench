@@ -10,6 +10,7 @@ class approx_linear_func(torch.autograd.Function):
         ctx.minimal_k_bwd = minimal_k_bwd
         ctx.sample_ratio_wu = sample_ratio_wu
         ctx.minimal_k_wu = minimal_k_wu
+        ctx.minimal_k = minimal_k
         ctx.tag = algo
         #return approx_linear_forward(inputs, weights, bias,sample_ratio,minimal_k,None,None,None,None, tag=algo)
         return torch.nn.functional.linear(inputs,weights,bias)
@@ -25,12 +26,12 @@ class approx_linear_func(torch.autograd.Function):
         if ctx.minimal_k_bwd is None:
             grad_input = torch.matmul(grad_output, weights)
         else:
-            grad_input = approx_linear_forward(grad_output, weights.t(), None,ctx.sample_ratio_bwd,ctx.minimal_k_bwd,None,None,None,None, tag=ctx.tag)
+            grad_input = approx_linear_forward(grad_output, weights.t(), None,ctx.sample_ratio_bwd,ctx.minimal_k,None,None,None,None, tag=ctx.tag)
 
         if ctx.minimal_k_wu is None:
             grad_weight = torch.matmul(grad_output.t(),inputs)
         else:
-            grad_weight = approx_linear_forward(grad_output.t(), inputs.t(), None,ctx.sample_ratio_wu,ctx.minimal_k_wu,None,None,None,None, tag=ctx.tag)
+            grad_weight = approx_linear_forward(grad_output.t(), inputs.t(), None,ctx.sample_ratio_wu,ctx.minimal_k,None,None,None,None, tag=ctx.tag)
 
         return grad_input, grad_weight, grad_bias, None, None, None, None, None, None, None
 

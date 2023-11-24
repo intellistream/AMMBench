@@ -36,7 +36,7 @@ def get_args():
     return args
 
 
-def main(a, h=500):
+def main(a, h=500, e=1):
     args = get_args()
     args.d_hidden = h
     trn, dev, tst = get_mnist()
@@ -53,7 +53,8 @@ def main(a, h=500):
         tst,
         cudatensor=False,
         file=sys.stdout,
-        a=a)
+        a=a,
+        e=e)
 
     # results may be different at each run
     #with torch.autograd.profiler.profile(use_cuda=True) as prof:

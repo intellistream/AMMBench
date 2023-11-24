@@ -31,7 +31,8 @@ class TestGroup(object):
                  tstset=None,
                  cudatensor=False,
                  file=sys.stdout,
-                 a="mm"):
+                 a="mm",
+                 e=1):
         self.args = args
         self.mb = mb
         self.hidden = hidden
@@ -40,6 +41,7 @@ class TestGroup(object):
         self.file = file
         self.trnset = trnset
         self.algo = a
+        self.e = e
 
         if cudatensor:  # dataset is on GPU
             self.trainloader = torch.utils.data.DataLoader(
@@ -263,7 +265,7 @@ class TestGroup(object):
         # Init the model, the optimizer and some structures for logging
         self.reset()
 
-        model = MLP(self.hidden, self.layer, self.dropout, self.algo)
+        model = MLP(self.hidden, self.layer, self.dropout, self.algo, self.e)
         #print(model)
         model.reset_parameters()
         #model.cuda()

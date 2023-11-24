@@ -31,7 +31,8 @@ def approx_linear_forward_xA_b(input,weight,bias,sample_ratio,minimal_k,sample_r
         - Bias: :math:`(out\_features)`
         - Output: :math:`(N, *, out\_features)`
     """
-    
+    if (minimal_k == 0):
+        return ammE(input, weight, bias, minimal_k, tag)
     return amm(input, weight, bias, minimal_k, tag)
 
 
@@ -42,15 +43,29 @@ def amm(A,B,bias, minimal_k, algo):
     if algo not in algorithms:
         algo = "mm"
     torch.ops.AMMBench.setTag(algo)
+    C = torch.ops.AMMBench.ammSpecifySs(A, B, int(A.size(1)/10))
+    if bias is not None:
+        C += bias
+    return C
+
+def ammE(A,B,bias, minimal_k, algo):
+    algorithms = ["mm", "crs", "crsV2", "countSketch", "bcrs", "ews", "cooFD",
+                   "bcooFD", "int8", "int8_fp32", "tugOfWar", "weighted-cr",
+                     "smp-pca", "blockLRA", "rip", "fastjlt"]
+    if algo not in algorithms:
+        algo = "mm"
+    torch.ops.AMMBench.setTag(algo)
     global count
     count += 1
-    C = torch.ops.AMMBench.ammSpecifySs(A, B, minimal_k)
+    C = torch.ops.AMMBench.ammSpecifySs(A, B, int(A.size(1)/10))
     CE = torch.mm(A, B)
     global error
     error += torch.norm(CE-C, p='fro')
     if (count == 10):
         string = algo + ": " + str(error.item()/10)
-        os.system("echo \"" + string+"\"")
+        print(algo + ":" + string)
+        count = 0
+        error = 0
         return 1
     if bias is not None:
         C += bias

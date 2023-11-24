@@ -30,14 +30,15 @@ class MLP(nn.Module):
     Activation is ReLU
     '''
 
-    def __init__(self, hidden, layer, dropout=None, algo='mm'):
+    def __init__(self, hidden, layer, dropout=None, algo='mm', e=1):
         super(MLP, self).__init__()
         self.layer = layer
         self.dropout = dropout
-        self.model = nn.Sequential(self._create(hidden, layer, dropout, algo))
+        self.model = nn.Sequential(self._create(hidden, layer, dropout, algo, e))
         self.algo = algo
 
-    def _create(self, hidden, layer, dropout=None, algo='mm'):
+    def _create(self, hidden, layer, dropout=None, algo='mm', e=1):
+        minimal_k = e
         if layer == 1:
             d = OrderedDict()
             d['linear0'] = approx_Linear(784, 10, sample_ratio=sample_ratio, minimal_k=minimal_k, sample_ratio_bwd=sample_ratio_bwd, minimal_k_bwd = minimal_k_bwd, sample_ratio_wu = sample_ratio_wu, minimal_k_wu = minimal_k_wu, algo=algo)
